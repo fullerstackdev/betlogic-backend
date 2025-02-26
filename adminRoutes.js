@@ -1,6 +1,6 @@
 const express = require("express");
 const { Pool } = require("pg");
-const { requireAuth, requireSuperadmin } = require("../../authMiddleware"); 
+const { requireAuth, requireSuperadmin } = require("./authMiddleware"); 
 // adjust path if your authMiddleware is in a different folder
 
 const router = express.Router();

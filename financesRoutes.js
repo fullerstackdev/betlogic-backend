@@ -63,7 +63,7 @@ router.get("/transactions", requireAuth, async (req, res) => {
 router.post("/transactions", requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { fromAccount, toAccount, amount, type, description, status } = req.body;
+    let { fromAccount, toAccount, amount, type, description, status } = req.body;
 
     // Basic validation
     if (!fromAccount || !toAccount || !amount) {
@@ -75,6 +75,9 @@ router.post("/transactions", requireAuth, async (req, res) => {
     if (isNaN(amt) || amt <= 0) {
       return res.status(400).json({ error: "Invalid amount" });
     }
+
+    // Default status to "Pending" if not provided
+    status = status || "Pending";
 
     const query = `
       INSERT INTO transactions
@@ -89,12 +92,23 @@ router.post("/transactions", requireAuth, async (req, res) => {
       amt,
       type || "Deposit",
       description || null,
-      status || "Pending",
+      status,
     ];
     const result = await pool.query(query, values);
 
-    // Optional: Update account balances if using real-time ledger logic.
-    // For example, if (status === "Confirmed") { ... }
+    // Optional: If the transaction is confirmed, update the account balances
+    if (status === "Confirmed") {
+      // Subtract from the sender's account
+      await pool.query(
+        "UPDATE accounts SET balance = balance - $1, updated_at = NOW() WHERE id = $2",
+        [amt, fromAccount]
+      );
+      // Add to the receiver's account
+      await pool.query(
+        "UPDATE accounts SET balance = balance + $1, updated_at = NOW() WHERE id = $2",
+        [amt, toAccount]
+      );
+    }
 
     return res.json({
       message: "Transaction created",
@@ -102,6 +116,36 @@ router.post("/transactions", requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error("// create transaction error", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * POST /api/finances/accounts
+ * Expects a JSON body: { name }
+ */
+router.post("/accounts", requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { name } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: "Missing account name" });
+    }
+    
+    const query = `
+      INSERT INTO accounts (user_id, name)
+      VALUES ($1, $2)
+      RETURNING id, name, balance
+    `;
+    const result = await pool.query(query, [userId, name]);
+    
+    return res.json({
+      message: "Account created",
+      account: result.rows[0],
+    });
+  } catch (err) {
+    console.error("// create account error", err);
     res.status(500).json({ error: "Server error" });
   }
 });

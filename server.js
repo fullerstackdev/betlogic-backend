@@ -4,7 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
 const authRoutes = require("./authRoutes");
-const adminRoutes = require("./migrations/routes/adminRoutes"); 
+const adminRoutes = require("./adminRoutes"); 
 const financesRoutes = require("./financesRoutes"); // adjust the path if it's in a subfolder
 
 const app = express();

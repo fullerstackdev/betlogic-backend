@@ -4,11 +4,14 @@ const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
 const authRoutes = require("./authRoutes");
+const adminRoutes = require("./adminRoutes"); 
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
+
 
 // Create a pool to connect to the PostgreSQL database
 const pool = new Pool({

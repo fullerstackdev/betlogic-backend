@@ -18,6 +18,7 @@ const pool = new Pool({
  */
 router.get("/accounts", requireAuth, async (req, res) => {
   try {
+    console.log("DEBUG: req.user =", req.user);  // <-- Debug line
     const userId = req.user.userId;
     const result = await pool.query(
       "SELECT id, name, balance FROM accounts WHERE user_id = $1 ORDER BY id",

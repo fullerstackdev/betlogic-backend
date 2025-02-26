@@ -12,11 +12,10 @@ const router = express.Router();
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   // if your Render DB needs SSL, uncomment the next line:
-//   ssl: { rejectUnauthorized: false },
+  // ssl: { rejectUnauthorized: false },
 });
 
-// nodemailer transporter for Gmail
-// you MUST have EMAIL_USER, EMAIL_PASS in .env
+// nodemailer transporter (gmail example)
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -30,7 +29,7 @@ function generateToken(payload) {
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1d" });
 }
 
-// send verification email (gmail)
+// send verification email
 async function sendVerificationEmail(toEmail, token) {
   const verifyURL = `${process.env.SERVER_URL}/api/auth/verify/${token}`;
   const mailOptions = {
@@ -42,7 +41,7 @@ async function sendVerificationEmail(toEmail, token) {
   await transporter.sendMail(mailOptions);
 }
 
-// utility: send reset email
+// utility: send forgot/reset email
 async function sendResetEmail(toEmail, resetToken) {
   const resetURL = `${process.env.SERVER_URL}/auth/reset?token=${resetToken}`;
   const mailOptions = {

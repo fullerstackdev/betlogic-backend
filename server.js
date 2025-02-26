@@ -5,7 +5,8 @@ const cors = require("cors");
 const { Pool } = require("pg");
 const authRoutes = require("./authRoutes");
 const adminRoutes = require("./adminRoutes"); 
-const financesRoutes = require("./financesRoutes"); // adjust the path if it's in a subfolder
+const financesRoutes = require("./financesRoutes");
+const promotionsRoutes = require("./promotionsRoutes");
 
 const app = express();
 app.use(cors());
@@ -13,6 +14,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/finances", financesRoutes);
+app.use("/api/promotions", promotionsRoutes);
 
 
 // Create a pool to connect to the PostgreSQL database

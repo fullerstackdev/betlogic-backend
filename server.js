@@ -3,7 +3,7 @@ console.log("DEBUG DATABASE_URL =", process.env.DATABASE_URL);
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
-const authRoutes = require("./routes/authRoutes");
+const authRoutes = require("./authRoutes");
 
 const app = express();
 app.use(cors());

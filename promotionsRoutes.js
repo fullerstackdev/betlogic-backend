@@ -2,33 +2,56 @@ require("dotenv").config();
 const express = require("express");
 const { Pool } = require("pg");
 const { requireAuth, requireAdmin } = require("./authMiddleware");
-// or "./authMiddleware.js" if needed
+// adjust path if your authMiddleware is in a subfolder
 
 const router = express.Router();
 
 // create pg pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // ssl might be needed if Render requires it
+  // if needed for Render SSL:
   // ssl: { rejectUnauthorized: false },
 });
 
 /**
+ * Helper to create a sportsbook account if user doesn't have it yet.
+ * Called when user completes step 1 of a promotion.
+ */
+async function autoCreateSportsbookAccount(userId, accountName) {
+  // check if user already has that account
+  const checkRes = await pool.query(
+    "SELECT id FROM accounts WHERE user_id=$1 AND name=$2",
+    [userId, accountName]
+  );
+  if (checkRes.rows.length === 0) {
+    // insert
+    await pool.query(
+      "INSERT INTO accounts (user_id, name) VALUES ($1, $2)",
+      [userId, accountName]
+    );
+  }
+}
+
+/**
  * GET /api/promotions
- * returns all active promotions
+ * returns promotions assigned to the current user from user_promotions_assigned table
  */
 router.get("/", requireAuth, async (req, res) => {
   try {
+    const userId = req.user.userId;
+    // only return promotions assigned to this user
     const query = `
-      SELECT id, title, description, image_url, status, start_date, end_date
-      FROM promotions
-      WHERE status <> 'archived'
-      ORDER BY created_at DESC
+      SELECT p.id, p.title, p.description, p.image_url, p.status, p.start_date, p.end_date, p.sportsbook_name
+      FROM user_promotions_assigned up
+      JOIN promotions p ON up.promotion_id = p.id
+      WHERE up.user_id = $1
+      AND p.status <> 'archived'
+      ORDER BY p.created_at DESC
     `;
-    const result = await pool.query(query);
+    const result = await pool.query(query, [userId]);
     return res.json(result.rows);
   } catch (err) {
-    console.error("// get promotions error", err);
+    console.error("// get user assigned promotions error", err);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -40,9 +63,20 @@ router.get("/", requireAuth, async (req, res) => {
 router.get("/:id", requireAuth, async (req, res) => {
   try {
     const promoId = req.params.id;
+
+    // check if user is assigned to this promotion
+    const assignCheck = await pool.query(
+      `SELECT id FROM user_promotions_assigned
+       WHERE user_id=$1 AND promotion_id=$2`,
+      [req.user.userId, promoId]
+    );
+    if (assignCheck.rows.length === 0) {
+      return res.status(403).json({ error: "You are not assigned this promotion" });
+    }
+
     // fetch promotion
     const promoRes = await pool.query(
-      "SELECT id, title, description, image_url, status, start_date, end_date FROM promotions WHERE id=$1",
+      "SELECT id, title, description, image_url, status, start_date, end_date, sportsbook_name FROM promotions WHERE id=$1",
       [promoId]
     );
     if (promoRes.rows.length === 0) {
@@ -72,27 +106,40 @@ router.get("/:id", requireAuth, async (req, res) => {
 /**
  * POST /api/promotions
  * admin-only route to create a new promotion + optional steps
- * expects: { title, description, imageUrl, startDate, endDate, steps:[{step_number, title, description}...] }
+ * expects: {
+ *   title, description, imageUrl, startDate, endDate, sportsbookName,
+ *   steps:[{step_number, title, description}...]
+ * }
  */
 router.post("/", requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { title, description, imageUrl, startDate, endDate, steps } = req.body;
+    const {
+      title,
+      description,
+      imageUrl,
+      startDate,
+      endDate,
+      sportsbookName,
+      steps
+    } = req.body;
+
     if (!title) {
       return res.status(400).json({ error: "Missing title" });
     }
 
-    // insert promotion
+    // insert promotion, including sportsbook_name
     const promoRes = await pool.query(
       `INSERT INTO promotions
-         (title, description, image_url, start_date, end_date)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, title, description, image_url, start_date, end_date, status`,
+         (title, description, image_url, start_date, end_date, sportsbook_name)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, title, description, image_url, start_date, end_date, status, sportsbook_name`,
       [
         title,
         description || null,
         imageUrl || null,
         startDate || null,
-        endDate || null
+        endDate || null,
+        sportsbookName || null
       ]
     );
     const newPromo = promoRes.rows[0];
@@ -124,13 +171,57 @@ router.post("/", requireAuth, requireAdmin, async (req, res) => {
 /**
  * POST /api/promotions/:id/progress
  * user updates their progress for a promotion
- * expects { completedSteps: [...], progressPct: number }
+ * expects { completedSteps: [...] }
+ * automatically calculates progressPct, creates an account if step 1 is completed
  */
 router.post("/:id/progress", requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
     const promoId = req.params.id;
-    const { completedSteps, progressPct } = req.body;
+    const { completedSteps } = req.body;
+
+    // check assignment
+    const assignCheck = await pool.query(
+      `SELECT id FROM user_promotions_assigned
+       WHERE user_id=$1 AND promotion_id=$2`,
+      [userId, promoId]
+    );
+    if (assignCheck.rows.length === 0) {
+      return res.status(403).json({ error: "You are not assigned this promotion" });
+    }
+
+    // fetch total steps
+    const countRes = await pool.query(
+      "SELECT COUNT(*) as total FROM promotion_steps WHERE promotion_id=$1",
+      [promoId]
+    );
+    const totalSteps = parseInt(countRes.rows[0].total, 10) || 0;
+
+    // unique completed steps
+    const uniqueCompleted = Array.isArray(completedSteps)
+      ? [...new Set(completedSteps)]
+      : [];
+
+    // compute newPct
+    let newPct = 0;
+    if (totalSteps > 0) {
+      newPct = Math.floor((uniqueCompleted.length / totalSteps) * 100);
+    }
+
+    // fetch the promotion row to see if there's a sportsbook_name
+    const promoRes = await pool.query(
+      "SELECT id, sportsbook_name FROM promotions WHERE id=$1",
+      [promoId]
+    );
+    if (promoRes.rows.length === 0) {
+      return res.status(404).json({ error: "Promotion not found" });
+    }
+    const { sportsbook_name } = promoRes.rows[0];
+
+    // if step 1 is in uniqueCompleted, and there's a sportsbook_name, create account
+    if (uniqueCompleted.includes(1) && sportsbook_name) {
+      await autoCreateSportsbookAccount(userId, sportsbook_name);
+    }
 
     // check if user_promotion_progress row exists
     const uppRes = await pool.query(
@@ -138,17 +229,17 @@ router.post("/:id/progress", requireAuth, async (req, res) => {
       [userId, promoId]
     );
     if (uppRes.rows.length === 0) {
-      // insert new row
+      // insert
       const insertRes = await pool.query(
         `INSERT INTO user_promotion_progress
            (user_id, promotion_id, completed_steps, progress_pct, started_at)
          VALUES ($1, $2, $3, $4, NOW())
-         RETURNING id, user_id, promotion_id, completed_steps, progress_pct`,
+         RETURNING id, user_id, promotion_id, completed_steps, progress_pct, started_at, completed_at`,
         [
           userId,
           promoId,
-          JSON.stringify(completedSteps || []),
-          progressPct || 0
+          JSON.stringify(uniqueCompleted),
+          newPct
         ]
       );
       return res.json({
@@ -156,17 +247,12 @@ router.post("/:id/progress", requireAuth, async (req, res) => {
         progress: insertRes.rows[0]
       });
     } else {
-      // update row
+      // update
       const existing = uppRes.rows[0];
-      const newSteps = completedSteps ? JSON.stringify(completedSteps) : existing.completed_steps;
-      const newPct = (typeof progressPct === "number") ? progressPct : existing.progress_pct;
-
-      // if newPct = 100 => completed_at = now
       let completedAtClause = "";
       if (newPct === 100) {
         completedAtClause = ", completed_at=NOW()";
       }
-
       const updateRes = await pool.query(
         `UPDATE user_promotion_progress
          SET completed_steps=$1,
@@ -175,7 +261,7 @@ router.post("/:id/progress", requireAuth, async (req, res) => {
              ${completedAtClause}
          WHERE id=$3
          RETURNING id, user_id, promotion_id, completed_steps, progress_pct, started_at, completed_at`,
-        [newSteps, newPct, existing.id]
+        [JSON.stringify(uniqueCompleted), newPct, existing.id]
       );
       return res.json({
         message: "Progress updated",
@@ -184,6 +270,29 @@ router.post("/:id/progress", requireAuth, async (req, res) => {
     }
   } catch (err) {
     console.error("// update progress error", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * POST /api/promotions/assign
+ * Body: { userId, promotionId }
+ * admin-only. assigns a promotion to a user in user_promotions_assigned
+ */
+router.post("/assign", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { userId, promotionId } = req.body;
+    if (!userId || !promotionId) {
+      return res.status(400).json({ error: "Missing userId or promotionId" });
+    }
+    await pool.query(
+      `INSERT INTO user_promotions_assigned (user_id, promotion_id)
+       VALUES ($1, $2)`,
+      [userId, promotionId]
+    );
+    return res.json({ message: "Promotion assigned to user" });
+  } catch (err) {
+    console.error("// assign promo error", err);
     res.status(500).json({ error: "Server error" });
   }
 });

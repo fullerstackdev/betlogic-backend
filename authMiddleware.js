@@ -1,7 +1,7 @@
 require("dotenv").config();
 const jwt = require("jsonwebtoken");
 
-// checks for Authorization: Bearer token, verifies it, sets req.user
+// Checks for Authorization: Bearer token, verifies it, sets req.user
 function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -21,7 +21,7 @@ function requireAuth(req, res, next) {
   }
 }
 
-// only allows if req.user.role in ["admin","superadmin"]
+// Allows if req.user.role is "admin" or "superadmin"
 function requireAdmin(req, res, next) {
   if (!req.user || (req.user.role !== "admin" && req.user.role !== "superadmin")) {
     return res.status(403).json({ error: "Forbidden: Admins only" });
@@ -29,7 +29,7 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// only allows if req.user.role === "superadmin"
+// Only allows if req.user.role is "superadmin"
 function requireSuperadmin(req, res, next) {
   if (!req.user || req.user.role !== "superadmin") {
     return res.status(403).json({ error: "Forbidden: Superadmin only" });

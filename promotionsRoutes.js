@@ -112,61 +112,62 @@ router.get("/:id", requireAuth, async (req, res) => {
  * }
  */
 router.post("/", requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const {
-      title,
-      description,
-      imageUrl,
-      startDate,
-      endDate,
-      sportsbookName,
-      steps
-    } = req.body;
-
-    if (!title) {
-      return res.status(400).json({ error: "Missing title" });
-    }
-
-    // insert promotion, including sportsbook_name
-    const promoRes = await pool.query(
-      `INSERT INTO promotions
-         (title, description, image_url, start_date, end_date, sportsbook_name)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, title, description, image_url, start_date, end_date, status, sportsbook_name`,
-      [
+    try {
+      const {
         title,
-        description || null,
-        imageUrl || null,
-        startDate || null,
-        endDate || null,
-        sportsbookName || null
-      ]
-    );
-    const newPromo = promoRes.rows[0];
-    const promoId = newPromo.id;
-
-    // if steps array is provided
-    if (Array.isArray(steps) && steps.length > 0) {
-      for (const s of steps) {
-        const { step_number, title: stitle, description: sdesc } = s;
-        await pool.query(
-          `INSERT INTO promotion_steps
-             (promotion_id, step_number, title, description)
-           VALUES ($1, $2, $3, $4)`,
-          [promoId, step_number, stitle || null, sdesc || null]
-        );
+        description,
+        imageUrl,
+        startDate,
+        endDate,
+        sportsbook_name, // changed from sportsbookName to match JSON key
+        steps
+      } = req.body;
+  
+      if (!title) {
+        return res.status(400).json({ error: "Missing title" });
       }
+  
+      // insert promotion, including sportsbook_name
+      const promoRes = await pool.query(
+        `INSERT INTO promotions
+           (title, description, image_url, start_date, end_date, sportsbook_name)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, title, description, image_url, start_date, end_date, status, sportsbook_name`,
+        [
+          title,
+          description || null,
+          imageUrl || null,
+          startDate || null,
+          endDate || null,
+          sportsbook_name || null
+        ]
+      );
+      const newPromo = promoRes.rows[0];
+      const promoId = newPromo.id;
+  
+      // if steps array is provided
+      if (Array.isArray(steps) && steps.length > 0) {
+        for (const s of steps) {
+          const { step_number, title: stitle, description: sdesc } = s;
+          await pool.query(
+            `INSERT INTO promotion_steps
+               (promotion_id, step_number, title, description)
+             VALUES ($1, $2, $3, $4)`,
+            [promoId, step_number, stitle || null, sdesc || null]
+          );
+        }
+      }
+  
+      return res.json({
+        message: "Promotion created",
+        promotion: newPromo
+      });
+    } catch (err) {
+      console.error("// create promotion error", err);
+      res.status(500).json({ error: "Server error" });
     }
-
-    return res.json({
-      message: "Promotion created",
-      promotion: newPromo
-    });
-  } catch (err) {
-    console.error("// create promotion error", err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
+  });
+  
 
 /**
  * POST /api/promotions/:id/progress

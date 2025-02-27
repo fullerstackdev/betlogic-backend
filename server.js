@@ -9,6 +9,7 @@ const financesRoutes = require("./financesRoutes");
 const promotionsRoutes = require("./promotionsRoutes");
 const tasksRoutes = require("./tasksRoutes");
 const betsRoutes = require("./betsRoutes");
+const calendarRoutes = require("./calendarRoutes");
 
 
 const app = express();
@@ -20,6 +21,7 @@ app.use("/api/finances", financesRoutes);
 app.use("/api/promotions", promotionsRoutes);
 app.use("/api/tasks", tasksRoutes);
 app.use("/api/bets", betsRoutes);
+app.use("/api/calendar", calendarRoutes);
 
 
 // Create a pool to connect to the PostgreSQL database

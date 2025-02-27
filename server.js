@@ -7,6 +7,8 @@ const authRoutes = require("./authRoutes");
 const adminRoutes = require("./adminRoutes"); 
 const financesRoutes = require("./financesRoutes");
 const promotionsRoutes = require("./promotionsRoutes");
+const tasksRoutes = require("./tasksRoutes");
+
 
 const app = express();
 app.use(cors());
@@ -15,6 +17,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/finances", financesRoutes);
 app.use("/api/promotions", promotionsRoutes);
+app.use("/api/tasks", tasksRoutes);
 
 
 // Create a pool to connect to the PostgreSQL database

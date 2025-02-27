@@ -2,33 +2,45 @@ require("dotenv").config();
 const express = require("express");
 const { Pool } = require("pg");
 const { requireAuth } = require("./authMiddleware");
-// adjust path to authMiddleware if needed
+// if you want requireAdmin or requireSuperadmin specifically, we'll incorporate that below
 
 const router = express.Router();
 
 // create pg pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // if needed for SSL:
+  // ssl might be needed if Render requires it
   // ssl: { rejectUnauthorized: false },
 });
 
 /**
  * GET /api/tasks
- * returns tasks for the current user, grouped by status if you like
+ * - if user.role in ["admin","superadmin"], returns all tasks
+ * - otherwise returns tasks assigned to req.user.userId
  */
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const userId = req.user.userId;
-    const query = `
-      SELECT id, title, description, status, created_by, created_at, updated_at
+    const { userId, role } = req.user;
+
+    let query = `
+      SELECT id, user_id, title, description, status, created_by, created_at, updated_at
       FROM tasks
-      WHERE user_id=$1
       ORDER BY id DESC
     `;
-    const result = await pool.query(query, [userId]);
+    let params = [];
 
-    // optionally group them by status yourself or just return raw
+    if (role !== "admin" && role !== "superadmin") {
+      // normal user => filter tasks by user_id
+      query = `
+        SELECT id, user_id, title, description, status, created_by, created_at, updated_at
+        FROM tasks
+        WHERE user_id=$1
+        ORDER BY id DESC
+      `;
+      params = [userId];
+    }
+
+    const result = await pool.query(query, params);
     return res.json(result.rows);
   } catch (err) {
     console.error("// get tasks error", err);
@@ -38,31 +50,36 @@ router.get("/", requireAuth, async (req, res) => {
 
 /**
  * POST /api/tasks
- * create a new task
- * expects { title, description, status? } in req.body
+ * - if normal user, forced to create tasks for themselves
+ * - if admin/superadmin, can pass user_id in the body to assign tasks to that user
  */
 router.post("/", requireAuth, async (req, res) => {
   try {
-    const userId = req.user.userId;   // the assignee
-    // if the app logic says "only the same user can create tasks for themselves," we do that
-    // if you want an admin to create tasks for a user, pass userId in body
-    const { title, description, status } = req.body;
+    const { userId, role } = req.user;
+    const { user_id, title, description, status } = req.body;
+
     if (!title) {
       return res.status(400).json({ error: "Missing title" });
     }
 
-    const creatorId = userId; // or if admin is creating for another user, parse it differently
+    let assignedUserId = userId; // default = the user themselves
 
+    // if admin, they can override assignedUserId
+    if ((role === "admin" || role === "superadmin") && user_id) {
+      assignedUserId = user_id;
+    }
+
+    // insert
     const insertRes = await pool.query(
       `INSERT INTO tasks (user_id, title, description, status, created_by)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, user_id, title, description, status, created_by, created_at`,
+       RETURNING id, user_id, title, description, status, created_by, created_at, updated_at`,
       [
-        userId,
+        assignedUserId,
         title,
         description || null,
         status || "todo",
-        creatorId
+        userId  // created_by is the user who posted this route
       ]
     );
 
@@ -78,34 +95,37 @@ router.post("/", requireAuth, async (req, res) => {
 
 /**
  * PATCH /api/tasks/:id
- * update task's status or details
- * ex: { title, description, status }
+ * - if normal user, can only update tasks assigned to themselves
+ * - if admin/superadmin, can update any task
  */
 router.patch("/:id", requireAuth, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const { userId, role } = req.user;
     const taskId = req.params.id;
     const { title, description, status } = req.body;
 
-    // fetch task first
+    // fetch the task
     const taskRes = await pool.query(
-      "SELECT id, user_id, title, description, status FROM tasks WHERE id=$1",
+      `SELECT id, user_id, title, description, status, created_by
+       FROM tasks
+       WHERE id=$1`,
       [taskId]
     );
     if (taskRes.rows.length === 0) {
       return res.status(404).json({ error: "Task not found" });
     }
     const task = taskRes.rows[0];
-    // check if the current user is the assignee or has permission
-    if (task.user_id !== userId) {
-      return res.status(403).json({ error: "Not your task" });
-    }
 
-    // build update query
-    let updateQuery = `
-      UPDATE tasks
-      SET updated_at=NOW()
-    `;
+    // check ownership
+    if (role !== "admin" && role !== "superadmin") {
+      // normal user => must be their task
+      if (task.user_id !== userId) {
+        return res.status(403).json({ error: "Not your task" });
+      }
+    }
+    // if admin or superadmin, they can update any user's tasks
+
+    // build partial update
     const fields = [];
     const values = [];
     if (title !== undefined) {
@@ -121,20 +141,19 @@ router.patch("/:id", requireAuth, async (req, res) => {
       values.push(status);
     }
 
-    // if no fields are updated
     if (fields.length === 0) {
       return res.json({ message: "No changes" });
     }
 
-    const setParts = fields.map((f, i) => `${f}=$${i+1}`);
-    updateQuery += ", " + setParts.join(", ");
-    updateQuery += " WHERE id=$" + (fields.length+1);
-    updateQuery += " RETURNING id, user_id, title, description, status, created_by, created_at, updated_at";
+    let updateQuery = "UPDATE tasks SET updated_at=NOW()";
+    const setParts = fields.map((f, i) => `, ${f}=$${i+1}`);
+    updateQuery += setParts.join("");
+    updateQuery += ` WHERE id=$${fields.length+1}`;
+    updateQuery += ` RETURNING id, user_id, title, description, status, created_by, created_at, updated_at`;
 
     values.push(taskId);
 
     const updateRes = await pool.query(updateQuery, values);
-
     return res.json({
       message: "Task updated",
       task: updateRes.rows[0]

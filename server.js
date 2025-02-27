@@ -12,6 +12,7 @@ const betsRoutes = require("./betsRoutes");
 const calendarRoutes = require("./calendarRoutes");
 const messagesRoutes = require("./messagesRoutes");
 const notificationsRoutes = require("./notificationsRoutes");
+const userRoutes = require("./userRoutes");
 
 
 const app = express();

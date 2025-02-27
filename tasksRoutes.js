@@ -2,7 +2,6 @@ require("dotenv").config();
 const express = require("express");
 const { Pool } = require("pg");
 const { requireAuth } = require("./authMiddleware");
-// if you want requireAdmin or requireSuperadmin specifically, we'll incorporate that below
 
 const router = express.Router();
 
@@ -69,7 +68,7 @@ router.post("/", requireAuth, async (req, res) => {
       assignedUserId = user_id;
     }
 
-    // insert
+    // insert task
     const insertRes = await pool.query(
       `INSERT INTO tasks (user_id, title, description, status, created_by)
        VALUES ($1, $2, $3, $4, $5)
@@ -83,9 +82,27 @@ router.post("/", requireAuth, async (req, res) => {
       ]
     );
 
+    const newTask = insertRes.rows[0];
+
+    // ADDED: Insert into activity_log
+    // action = "TASK_CREATE"
+    // details: JSON string containing the new task's ID and title
+    await pool.query(
+      `INSERT INTO activity_log (user_id, action, details)
+       VALUES ($1, $2, $3)`,
+      [
+        userId,
+        "TASK_CREATE",
+        JSON.stringify({
+          taskId: newTask.id,
+          title: newTask.title
+        })
+      ]
+    );
+
     return res.json({
       message: "Task created",
-      task: insertRes.rows[0]
+      task: newTask
     });
   } catch (err) {
     console.error("// create task error", err);
@@ -123,7 +140,6 @@ router.patch("/:id", requireAuth, async (req, res) => {
         return res.status(403).json({ error: "Not your task" });
       }
     }
-    // if admin or superadmin, they can update any user's tasks
 
     // build partial update
     const fields = [];

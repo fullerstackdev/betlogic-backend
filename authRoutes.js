@@ -129,43 +129,48 @@ router.get("/verify/:token", async (req, res) => {
 
 // POST /api/auth/login
 router.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "Missing email or password" });
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: "Missing email or password" });
+      }
+      // find user
+      const userRes = await pool.query(
+        `SELECT id, email, password_hash, role, status, first_name, last_name
+         FROM users
+         WHERE email=$1`,
+        [email]
+      );
+      if (userRes.rows.length === 0) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+      const user = userRes.rows[0];
+      // compare password
+      const match = await bcrypt.compare(password, user.password_hash);
+      if (!match) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+      // check if user is active
+      if (user.status !== "active") {
+        return res.status(403).json({ error: "Please verify your email first." });
+      }
+      // generate JWT
+      const token = generateToken({
+        userId: user.id,
+        role: user.role,
+      });
+      return res.json({
+        message: "Login successful",
+        token,
+        role: user.role,
+        firstName: user.first_name,
+        lastName: user.last_name,
+      });
+    } catch (err) {
+      console.error("// login error", err);
+      res.status(500).json({ error: "Server error" });
     }
-    // find user
-    const userRes = await pool.query(
-      "SELECT id, email, password_hash, role, status FROM users WHERE email=$1",
-      [email]
-    );
-    if (userRes.rows.length === 0) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-    const user = userRes.rows[0];
-    // compare password
-    const match = await bcrypt.compare(password, user.password_hash);
-    if (!match) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-    // check if user is active
-    if (user.status !== "active") {
-      return res.status(403).json({ error: "Please verify your email first." });
-    }
-    // generate JWT
-    const token = generateToken({
-      userId: user.id,
-      role: user.role,
-    });
-    return res.json({
-      message: "Login successful",
-      token,
-    });
-  } catch (err) {
-    console.error("// login error", err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
+  });
 
 // POST /api/auth/forgot
 router.post("/forgot", async (req, res) => {

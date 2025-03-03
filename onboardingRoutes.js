@@ -1,8 +1,6 @@
 const express = require("express");
 const router = express.Router();
 const { Pool } = require("pg");
-const { authenticateJWT } = require("./authMiddleware");
-
 
 // Setup connection
 const pool = new Pool({
@@ -10,10 +8,10 @@ const pool = new Pool({
 });
 
 // Middleware for JWT Auth (existing middleware)
-const { authenticateJWT } = require("./authMiddleware");
+const { requireAuth } = require("./authMiddleware");
 
 // POST /api/onboarding
-router.post("/", authenticateJWT, async (req, res) => {
+router.post("/", requireAuth, async (req, res) => {
   const userId = req.user.userId; // from JWT middleware
   const {
     birthday,

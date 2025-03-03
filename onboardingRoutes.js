@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { Pool } = require("pg");
-const requireAuth = require("./authMiddleware");
+const { requireAuth } = require("./authMiddleware");  // Explicit destructuring
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,

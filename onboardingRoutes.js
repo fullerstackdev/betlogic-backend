@@ -1,51 +1,25 @@
-const express = require("express");
-const router = express.Router();
-const { Pool } = require("pg");
-
-// Setup connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-// Middleware for JWT Auth (existing middleware)
-const { requireAuth } = require("./authMiddleware");
-
-// POST /api/onboarding
+// onboardingRoutes.js (example complete POST route)
 router.post("/", requireAuth, async (req, res) => {
-  const userId = req.user.userId; // from JWT middleware
-  const {
-    birthday,
-    has_paypal,
-    primary_bank,
-    used_sportsbooks,
-    sportsbooks_used,
-    calendar_availability,
-    completed_promotions,
-  } = req.body;
-
-  try {
-    // Insert onboarding data into database
-    await pool.query(
-      `INSERT INTO user_onboarding (
-        user_id, birthday, has_paypal, primary_bank, used_sportsbooks, sportsbooks_used, calendar_availability, completed_promotions
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [
-        userId,
-        birthday,
-        has_paypal,
-        primary_bank,
-        used_sportsbooks,
-        sportsbooks_used,
-        calendar_availability,
-        completed_promotions,
-      ]
-    );
-
-    res.status(201).json({ message: "Onboarding completed successfully." });
-  } catch (err) {
-    console.error("Error in onboarding:", err);
-    res.status(500).json({ error: "Server error during onboarding." });
-  }
-});
-
-module.exports = router;
+    try {
+      const userId = req.user.userId;
+      const {
+        birthday, has_paypal, primary_bank, used_sportsbooks,
+        sportsbooks_used, calendar_availability,
+        completed_promotions, referral_name
+      } = req.body;
+  
+      await pool.query(`
+        INSERT INTO user_onboarding (user_id, birthday, has_paypal, primary_bank, used_sportsbooks, sportsbooks_used, calendar_availability, completed_promotions, referral_name)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `, [userId, birthday, has_paypal, primary_bank, used_sportsbooks, sportsbooks_used, calendar_availability, completed_promotions, referral_name]);
+  
+      // Explicit update after onboarding completes
+      await pool.query("UPDATE users SET onboarding_completed=true WHERE id=$1", [userId]);
+  
+      res.status(200).json({ message: "Onboarding complete" });
+    } catch (err) {
+      console.error("Onboarding error", err);
+      res.status(500).json({ error: "Server error during onboarding" });
+    }
+  });
+  

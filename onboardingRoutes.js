@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const { Pool } = require("pg");
+const { authenticateJWT } = require("./authMiddleware");
+
 
 // Setup connection
 const pool = new Pool({
